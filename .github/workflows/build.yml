@@ -178,12 +178,12 @@ jobs:
           cmake -DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CXXFLAGS" -DCMAKE_BUILD_TYPE=Release -GNinja ..
           ninja --verbose
           echo -e "\n### make install ###\n"
-          cmake --install . --prefix /usr/local
+          cmake --install . --prefix ${{ github.workspace }}/dists
           echo -e "\n### all done ###\n"
 
-      - name: check
-        run: |
-          /usr/local/bin/adb --version
-          /usr/local/bin/fastboot --version
-          /usr/local/bin/make_f2fs -V
-          /usr/local/bin/sload_f2fs -V
+      - name: upload dists
+        uses: actions/upload-artifact@v3
+        with:
+          name: dists
+          path: ${{ github.workspace }}/dists
+          
