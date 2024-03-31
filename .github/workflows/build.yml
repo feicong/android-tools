@@ -185,6 +185,6 @@ jobs:
       - name: upload dists
         uses: actions/upload-artifact@v3
         with:
-          name: dists_macos
+          name: dists_${{ matrix.os }}
           path: ${{ github.workspace }}/dists
           
