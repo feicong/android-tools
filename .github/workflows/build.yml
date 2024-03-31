@@ -161,9 +161,9 @@ jobs:
       - name: prep macos
         run: |
           brew uninstall "openssl@1.1"
-          rm /usr/local/bin/openssl
+          rm -f /usr/local/bin/openssl
           rm -rf /usr/local/opt/openssl /usr/local/include/openssl
-          rm /opt/homebrew/bin/openssl
+          rm -f /opt/homebrew/bin/openssl
           rm -rf /opt/homebrew/opt/openssl /opt/homebrew/include/openssl
           brew install --overwrite brotli cmake go googletest libusb lz4 \
           ninja pcre2 protobuf zstd
