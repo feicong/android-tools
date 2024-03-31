@@ -179,12 +179,12 @@ jobs:
           cmake -DCMAKE_C_FLAGS="$CFLAGS" -DCMAKE_CXX_FLAGS="$CXXFLAGS" -DCMAKE_BUILD_TYPE=Release -GNinja ..
           ninja --verbose
           echo -e "\n### make install ###\n"
-          cmake --install . --prefix ${{ github.workspace }}/dists_macos
+          cmake --install . --prefix ${{ github.workspace }}/dists
           echo -e "\n### all done ###\n"
 
       - name: upload dists
         uses: actions/upload-artifact@v3
         with:
-          name: dists
-          path: ${{ github.workspace }}/dists_macos
+          name: dists_macos
+          path: ${{ github.workspace }}/dists
           
