@@ -1,0 +1,148 @@
+name: build
+
+on:
+  push:
+    paths-ignore:
+      - 'README.md'
+    branches:
+      - cygwin
+  pull_request:
+    paths-ignore:
+      - 'README.md'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+
+      - name: install go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.19.2'
+
+      - name: prep cygwin
+        uses: cygwin/cygwin-install-action@master
+        with:
+          packages: |
+            binutils, gcc-core, gcc-g++, patch, libpcre2-devel, python3, python3-devel, wget,
+            ninja, git, perl, cmake, libprotobuf-devel, libbrotli-devel, libzstd-devel,
+            liblz4-devel, zlib-devel, upx, busybox-standalone, lz4, openssl, busybox
+
+      - name: install pyinstaller
+        env:
+          SHELLOPTS: igncr
+          CHERE_INVOKING: 1
+        shell: bash
+        run: |
+          python -m pip install pip --upgrade
+          python -m pip install pyinstaller
+          dos2unix scripts/cygwin-patch-pyinstaller.sh
+          ./scripts/cygwin-patch-pyinstaller.sh
+
+      # required for patches
+      - name: git config
+        env:
+          SHELLOPTS: igncr
+          CHERE_INVOKING: 1
+        shell: bash
+        run: |
+          git config --global user.email "you@example.com"
+          git config --global user.name "Your Name"
+          git config --global core.autocrlf input
+          git config --global --add safe.directory $(cygpath -u "${{ github.workspace }}")
+          for repo in $(cat .gitmodules | grep -E "path = .+" | gawk '{ print $3 }'); do
+              git config --global --add safe.directory $(cygpath -u "${{ github.workspace }}/${repo}")
+          done
+
+      - name: install linux_compat
+        env:
+          SHELLOPTS: igncr
+          CHERE_INVOKING: 1
+        shell: bash
+        run: |
+          git clone https://github.com/ookiineko/linux_compat.git /usr/include/linux_compat \
+                    -b main --depth=1 --single-branch --no-tags --recurse-submodules --shallow-submodules
+
+      - name: build googletest
+        env:
+          SHELLOPTS: igncr
+        shell: bash
+        run: |
+          wget https://github.com/google/googletest/archive/refs/tags/release-1.12.1.tar.gz \
+               -O googletest-release-1.12.1.tar.gz
+          tar xf googletest-release-1.12.1.tar.gz
+          cd googletest-release-1.12.1
+          cmake -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX=/usr \
+                -DCMAKE_INSTALL_LIBDIR=lib \
+                -DBUILD_SHARED_LIBS=ON \
+                -DPYTHON_EXECUTABLE=python3 \
+                -Dgtest_build_tests=OFF \
+                -DBUILD_GMOCK=ON
+          cmake --build build
+          find build -name '*.pump' -print -delete
+          cmake --build build --target install
+
+      - name: build & install
+        env:
+          SHELLOPTS: igncr
+          CHERE_INVOKING: 1
+        shell: bash
+        run: |
+          cmake -B build -G Ninja \
+                -DCMAKE_INSTALL_PREFIX=/ \
+                -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          echo -e "\n### make install ###\n"
+          DESTDIR=dists cmake --install build
+          cd dists
+          echo -e "\n### strip symbols ###\n"
+          bins=$(ls -1 ./*.exe)
+          for bin in $bins; do
+          echo "stripping unneeded symbols for '${bin}'"
+          strip --strip-unneeded "${bin}"
+          done
+          export PATH="/usr/local/bin:${PATH}"
+          hash -r
+          echo -e "\n### pyinstaller-ify ###\n"
+          for script in $(file `find . -maxdepth 1 -type f` | grep "Python script" | gawk -F ':' '{ print $1 }'); do
+              pyinstaller -F "${script}"
+              mv -v dist/"${script}".exe .
+              rm -rf build dist "${script}" "${script}".spec
+          done
+          leftovers=$(find . -mindepth 1 -maxdepth 1 -type d)
+          [[ ! -z "${leftovers}" ]] && rm -rf "${leftovers}"
+          echo -e "\n### fetch external binaries ###\n"
+          cp -v /usr/libexec/busybox-standalone/bin/busybox.exe .
+          cp -v `which lz4` lz4.exe
+          cp -v `which openssl` openssl.exe
+          cp -v `which cygpath` cygpath.exe
+          wget https://github.com/Genymobile/scrcpy/releases/download/v1.24/scrcpy-win64-v1.24.zip -O scrcpy64.zip
+          busybox unzip scrcpy64.zip
+          rm -f adb.exe AdbWinApi.dll AdbWinUsbApi.dll scrcpy64.zip
+          wget https://dl.google.com/android/repository/platform-tools-latest-windows.zip -O platform-tools.zip
+          busybox unzip platform-tools.zip
+          cp -v platform-tools/{adb,fastboot,dmtracedump,etc1tool,hprof-conv,sqlite3}.exe .
+          cp -v platform-tools/{AdbWinApi,AdbWinUsbApi,libwinpthread-1}.dll .
+          cp -v platform-tools/{NOTICE.txt,source.properties} .
+          rm -rf platform-tools platform-tools.zip
+          echo -e "\n### export standalone release ###\n"
+          set +e
+          set +o pipefail
+          ../scripts/cygwin-standalone-release.sh
+          set -e
+          set -o pipefail
+          echo -e "\n### all done, upload artifacts ###\n"
+
+      - name: upload dists
+        uses: actions/upload-artifact@v3
+        with:
+          name: dists
+          path: ${{ github.workspace }}/dists
